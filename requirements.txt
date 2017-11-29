@@ -1,5 +1,6 @@
 django
-django-channels
+channels
 daphne
 Twisted[tls,http2]
 asgi_redis
+psycopg2
