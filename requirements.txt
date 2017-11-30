@@ -5,3 +5,4 @@ Twisted[tls,http2]
 asgi_redis
 psycopg2
 git+git://github.com/Idona-has/asgi_mqtt.git
+cryptography==2.1.3
