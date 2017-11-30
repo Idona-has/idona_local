@@ -7,4 +7,5 @@ def ws_disconnect(message):
     Group('users').discard(message.reply_channel)
 
 def mqtt_message(message):
-	print("MQTT Message:", message)
+    print("MQTT Message:", message, message.reply_channel)
+    message.reply_channel.send(dict(topic="test_pub", payload="Hello!"))
