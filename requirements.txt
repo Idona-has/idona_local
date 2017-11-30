@@ -4,3 +4,4 @@ daphne
 Twisted[tls,http2]
 asgi_redis
 psycopg2
+git+git://github.com/Idona-has/asgi_mqtt.git
