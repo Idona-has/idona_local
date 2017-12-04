@@ -8,4 +8,4 @@ def ws_disconnect(message):
 
 def mqtt_message(message):
     print("MQTT Message:", message, message.reply_channel)
-    message.reply_channel.send(dict(topic="test_pub", payload="Hello!"))
+    message.reply_channel.send(dict(topic="/idona/local/sb/1/0", payload="READ"))
