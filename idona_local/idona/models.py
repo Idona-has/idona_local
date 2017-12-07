@@ -107,3 +107,9 @@ class Endpoint(models.Model):
         elif self.ID in self.STRING:
             self.stringValue=str(value)
         self.save()
+
+@receiver(post_save, sender=Endpoint)
+def endpointPostSave(sender, instance, created, *args, **kwargs):
+    if created: return
+    if instance.readOnly: return
+    instance.write()
