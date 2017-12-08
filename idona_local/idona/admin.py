@@ -6,3 +6,6 @@ class DeviceAdmin(admin.ModelAdmin): pass
 
 @admin.register(Endpoint)
 class EndpointAdmin(admin.ModelAdmin): pass
+
+@admin.register(EndpointMatrix)
+class EndpointMatrixAdmin(admin.ModelAdmin): pass

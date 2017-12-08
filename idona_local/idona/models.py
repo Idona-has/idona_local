@@ -13,7 +13,13 @@ def devicePostSave(sender, instance, created, *args, **kwargs):
     if not created: return
 
     for ep in (0,1,2,3,4,5,6,7,8,91,92,99,):
-        Endpoint(ID=ep, device=instance).save()
+        ep=Endpoint(ID=ep, device=instance)
+        ep.save()
+
+    ep=Endpoint.objects.get(ID=99, device=instance)
+    im=ep.inputMatrix
+    ack=Endpoint.objects.get(ID=5, device=instance)
+    im.outputs.add(ack)
 
 class Endpoint(models.Model):
     SYSTEM=0
@@ -56,26 +62,45 @@ class Endpoint(models.Model):
     readOnly=models.BooleanField(default=True)
     type=models.PositiveSmallIntegerField(choices=VALUE_TYPES)
 
-    binaryValue=models.BinaryField(default=False)
+    binaryValue=models.BooleanField(default=False)
     integerValue=models.IntegerField(default=0)
-    decimalValue=models.FloatField()
-    stringValue=models.CharField(max_length=256)
+    decimalValue=models.FloatField(default=0.)
+    stringValue=models.CharField(max_length=256, default="")
+
+    inputMatrix=models.ForeignKey('EndpointMatrix', on_delete=models.CASCADE, related_name="endpoint", null=True)
+
+    def __str__(self):
+        return "{}: {}".format(self.device.ID, self.ID)
 
     def topic(self, direction="sb"):
         return "/idona/local/{}/{}/{}".format(direction, self.device.ID, self.ID)
 
     def save(self, *args, **kwargs):
         if not self.type:
-            if self.ID in self.SYSTEM_RANGE: self.type=self.SYSTEM
-            elif self.ID in self.BINARY_OUTPUT_RANGE: self.type=self.BINARY_OUTPUT
-            elif self.ID in self.INTEGER_OUTPUT_RANGE: self.type=self.INTEGER_OUTPUT
+            if self.ID in self.SYSTEM_RANGE:
+                self.type=self.SYSTEM
+                if self.ID in (1,5,6,7,8): self.readOnly=False
+                if self.ID==5: self.stringValue="ACK"
+            elif self.ID in self.BINARY_OUTPUT_RANGE:
+                self.type=self.BINARY_OUTPUT
+                self.readOnly=False
+            elif self.ID in self.INTEGER_OUTPUT_RANGE:
+                self.type=self.INTEGER_OUTPUT
+                self.readOnly=False
             elif self.ID in self.BINARY_INPUT_RANGE: self.type=self.BINARY_INPUT
             elif self.ID in self.DECIMAL_INPUT_RANGE: self.type=self.DECIMAL_INPUT
             elif self.ID in self.INTEGER_INPUT_RANGE: self.type=self.INTEGER_INPUT
-            elif self.ID in self.STRING_RANGE: self.type=self.STRING
+            elif self.ID in self.STRING_RANGE:
+                self.type=self.STRING
+                self.readOnly=False
             elif self.ID in self._RESERVED__RANGE: self.type=self._RESERVED_
             elif self.ID in self.ERROR_RANGE: self.type=self.ERROR
             else: self.type=0
+
+            if self.readOnly:
+                inputMatrix=EndpointMatrix()
+                inputMatrix.save()
+                self.inputMatrix=inputMatrix
         super().save(*args, **kwargs)
 
     def read(self):
@@ -86,30 +111,38 @@ class Endpoint(models.Model):
 
     @property
     def value(self):
-        if self.type in (self.BINARY_INPUT,self.BINARY_OUTPUT): return str(self.binaryValue)
+        if self.type in (self.BINARY_INPUT,self.BINARY_OUTPUT) or self.ID in (99,):
+            return str(self.binaryValue)
         elif self.type in (self.INTEGER_INPUT, self.INTEGER_OUTPUT): return str(self.integerValue)
         elif self.type==self.DECIMAL_INPUT: return str(self.DECIMAL_INPUT)
-        elif self.type==self.STRING: return  self.stringValue
+        elif self.type==self.STRING or self.ID==5:
+            return self.stringValue
         return None
 
     @value.setter
     def value(self, value):
-        if self.ID in (self.BINARY_INPUT,self.BINARY_OUTPUT):
+        if isinstance(value, bytes): value=value.decode('utf8')
+        if self.type in (self.BINARY_INPUT,self.BINARY_OUTPUT) or self.ID in (99,):
             if str(value).lower() in ('false','off','0'): self.binaryValue=False
             elif str(value).lower() in ('true','on','1'): self.binaryValue=True
             else: return
-        elif self.ID==self.DECIMAL_INPUT:
+        elif self.type==self.DECIMAL_INPUT:
             try: self.decimalValue=float(value)
             except ValueError: return
-        elif self.ID in (self.INTEGER_INPUT,self.INTEGER_OUTPUT):
+        elif self.type in (self.INTEGER_INPUT,self.INTEGER_OUTPUT):
             try: self.integerValue=int(value)
             except ValueError: return
-        elif self.ID in self.STRING:
+        elif self.type in self.STRING or self.ID==5:
             self.stringValue=str(value)
         self.save()
 
 @receiver(post_save, sender=Endpoint)
 def endpointPostSave(sender, instance, created, *args, **kwargs):
     if created: return
-    if instance.readOnly: return
-    instance.write()
+    if instance.readOnly:
+        for o in instance.inputMatrix.outputs.all(): o.write()
+    else: instance.write()
+
+class EndpointMatrix(models.Model):
+    # This does not yet take into account the 'phase of flight' style model...
+    outputs=models.ManyToManyField(Endpoint, related_name="outputMatrix")
