@@ -1,9 +1,12 @@
+import datetime
 from django.db import models
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from channels import Channel
+
+from multiselectfield import MultiSelectField
 
 class Device(models.Model):
     ID=models.CharField(max_length=12, primary_key=True)
@@ -16,10 +19,9 @@ def devicePostSave(sender, instance, created, *args, **kwargs):
         ep=Endpoint(ID=ep, device=instance)
         ep.save()
 
-    ep=Endpoint.objects.get(ID=99, device=instance)
-    im=ep.inputMatrix
+    wakeup=Endpoint.objects.get(ID=99, device=instance)
     ack=Endpoint.objects.get(ID=5, device=instance)
-    im.outputs.add(ack)
+    EndpointMatrix(input=wakeup, output=ack).save()
 
 class Endpoint(models.Model):
     SYSTEM=0
@@ -67,8 +69,6 @@ class Endpoint(models.Model):
     decimalValue=models.FloatField(default=0.)
     stringValue=models.CharField(max_length=256, default="")
 
-    inputMatrix=models.ForeignKey('EndpointMatrix', on_delete=models.CASCADE, related_name="endpoint", null=True)
-
     def __str__(self):
         return "{}: {}".format(self.device.ID, self.ID)
 
@@ -96,11 +96,6 @@ class Endpoint(models.Model):
             elif self.ID in self._RESERVED__RANGE: self.type=self._RESERVED_
             elif self.ID in self.ERROR_RANGE: self.type=self.ERROR
             else: self.type=0
-
-            if self.readOnly:
-                inputMatrix=EndpointMatrix()
-                inputMatrix.save()
-                self.inputMatrix=inputMatrix
         super().save(*args, **kwargs)
 
     def read(self):
@@ -140,9 +135,55 @@ class Endpoint(models.Model):
 def endpointPostSave(sender, instance, created, *args, **kwargs):
     if created: return
     if instance.readOnly:
-        for o in instance.inputMatrix.outputs.all(): o.write()
+        now=datetime.datetime.now().time()
+        for m in EndpointMatrix.objects.filter(input=instance, fromTime__lte=now, toTime__gte=now):
+            if not EndpointMatrix.checkDay(m.days): continue
+            m.output.write()
+
     else: instance.write()
 
 class EndpointMatrix(models.Model):
-    # This does not yet take into account the 'phase of flight' style model...
-    outputs=models.ManyToManyField(Endpoint, related_name="outputMatrix")
+    input=models.ForeignKey(Endpoint, on_delete=models.CASCADE, related_name="inputMatrix")
+    output=models.ForeignKey(Endpoint, on_delete=models.CASCADE, related_name="outputMatrix")
+
+    fromTime=models.TimeField(default=datetime.time.min)
+    toTime=models.TimeField(default=datetime.time.max)
+
+    MONDAY='mon'
+    TUESDAY='tue'
+    WEDNESDAY='wed'
+    THURSDAY='thu'
+    FRIDAY='fri'
+    SATURDAY='sat'
+    SUNDAY='sun'
+    WEEKDAY='wd'
+    WEEKEND='we'
+    ALL='all'
+
+    WEEKDAYS=(MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY)
+    WEEKENDDAYS=(SATURDAY, SUNDAY)
+    ALLDAYS=WEEKDAYS+WEEKENDDAYS
+
+    DAY_CHOICES=(
+        (MONDAY, 'Monday'),
+        (TUESDAY, 'Tuesday'),
+        (WEDNESDAY, 'Wednesday'),
+        (THURSDAY, 'Thursday'),
+        (FRIDAY, 'Friday'),
+        (SATURDAY, 'Saturday'),
+        (SUNDAY, 'Sunday'),
+        (WEEKDAY, 'Weekdays'),
+        (WEEKEND, 'Weekend'),
+        (ALL, 'All')
+    )
+
+    days=MultiSelectField(choices=DAY_CHOICES, default=ALL)
+
+    @classmethod
+    def checkDay(cls, day):
+        if cls.ALL in day: return True
+        today=datetime.datetime.now().strftime("%a").lower()
+        if cls.WEEKDAY in day and today in cls.WEEKDAYS: return True
+        elif cls.WEEKEND in day and today in cls.WEEKENDDAYS: return True
+        else: return today in day
+
