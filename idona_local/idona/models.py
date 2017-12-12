@@ -5,8 +5,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from channels import Channel
-
-from multiselectfield import MultiSelectField
+from weekday_field.fields import WeekdayField
 
 class Device(models.Model):
     ID=models.CharField(max_length=12, primary_key=True)
@@ -135,9 +134,10 @@ class Endpoint(models.Model):
 def endpointPostSave(sender, instance, created, *args, **kwargs):
     if created: return
     if instance.readOnly:
-        now=datetime.datetime.now().time()
-        for m in EndpointMatrix.objects.filter(input=instance, fromTime__lte=now, toTime__gte=now):
-            if not EndpointMatrix.checkDay(m.days): continue
+        now=datetime.datetime.now()
+        time=now.time()
+        day=str(int(now.strftime("%w"))-1)
+        for m in EndpointMatrix.objects.filter(input=instance, fromTime__lte=time, toTime__gte=time, days__contains=day):
             m.output.write()
 
     else: instance.write()
@@ -148,42 +148,5 @@ class EndpointMatrix(models.Model):
 
     fromTime=models.TimeField(default=datetime.time.min)
     toTime=models.TimeField(default=datetime.time.max)
-
-    MONDAY='mon'
-    TUESDAY='tue'
-    WEDNESDAY='wed'
-    THURSDAY='thu'
-    FRIDAY='fri'
-    SATURDAY='sat'
-    SUNDAY='sun'
-    WEEKDAY='wd'
-    WEEKEND='we'
-    ALL='all'
-
-    WEEKDAYS=(MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY)
-    WEEKENDDAYS=(SATURDAY, SUNDAY)
-    ALLDAYS=WEEKDAYS+WEEKENDDAYS
-
-    DAY_CHOICES=(
-        (MONDAY, 'Monday'),
-        (TUESDAY, 'Tuesday'),
-        (WEDNESDAY, 'Wednesday'),
-        (THURSDAY, 'Thursday'),
-        (FRIDAY, 'Friday'),
-        (SATURDAY, 'Saturday'),
-        (SUNDAY, 'Sunday'),
-        (WEEKDAY, 'Weekdays'),
-        (WEEKEND, 'Weekend'),
-        (ALL, 'All')
-    )
-
-    days=MultiSelectField(choices=DAY_CHOICES, default=ALL)
-
-    @classmethod
-    def checkDay(cls, day):
-        if cls.ALL in day: return True
-        today=datetime.datetime.now().strftime("%a").lower()
-        if cls.WEEKDAY in day and today in cls.WEEKDAYS: return True
-        elif cls.WEEKEND in day and today in cls.WEEKENDDAYS: return True
-        else: return today in day
+    days=WeekdayField(default=[0,1,2,3,4,5,6])
 
